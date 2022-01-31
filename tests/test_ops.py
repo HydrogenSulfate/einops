@@ -302,6 +302,9 @@ def test_reduction_with_callable_imperatives():
     def logsumexp_torch(x, tuple_of_axes):
         return x.logsumexp(tuple_of_axes)
 
+    def logsumexp_paddle(x, tuple_of_axes):
+        return x.logsumexp(tuple_of_axes)
+
     def logsumexp_tf(x, tuple_of_axes):
         import tensorflow as tf
         return tf.reduce_logsumexp(x, tuple_of_axes)
@@ -322,9 +325,10 @@ def test_reduction_with_callable_imperatives():
         y = numpy.sum(y, axis=tuple_of_axes)
         return numpy.log(y) + minused
 
-    from einops._backends import TorchBackend, ChainerBackend, TensorflowBackend, KerasBackend, NumpyBackend
+    from einops._backends import TorchBackend, PaddleBackend ,ChainerBackend, TensorflowBackend, KerasBackend, NumpyBackend
     backend2callback = {
         TorchBackend.framework_name: logsumexp_torch,
+        PaddleBackend.framework_name: logsumexp_paddle,
         ChainerBackend.framework_name: logsumexp_chainer,
         TensorflowBackend.framework_name: logsumexp_tf,
         KerasBackend.framework_name: logsumexp_keras,
