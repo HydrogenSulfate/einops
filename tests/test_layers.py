@@ -54,7 +54,6 @@ def test_rearrange_imperative():
                     variable = backend.from_numpy(x)
                     result = just_sum(layer(variable))
             else:
-                print(f"Input numpy.shape = {x.shape}")
                 variable = backend.from_numpy(x)
                 result = just_sum(layer(variable))
 
