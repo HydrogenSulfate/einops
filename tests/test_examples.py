@@ -9,76 +9,76 @@ def test_rearrange_examples():
     def test1(x):
         # transpose
         y = rearrange(x, 'b c h w -> b h w c')
-        assert y.shape == (10, 30, 40, 20)
+        assert tuple(y.shape) == (10, 30, 40, 20)
         return y
 
     def test2(x):
         # view / reshape
         y = rearrange(x, 'b c h w -> b (c h w)')
-        assert y.shape == (10, 20 * 30 * 40)
+        assert tuple(y.shape) == (10, 20 * 30 * 40)
         return y
 
     def test3(x):
         # depth-to-space
         y = rearrange(x, 'b (c h1 w1) h w -> b c (h h1) (w w1)', h1=2, w1=2)
-        assert y.shape == (10, 5, 30 * 2, 40 * 2)
+        assert tuple(y.shape) == (10, 5, 30 * 2, 40 * 2)
         return y
 
     def test4(x):
         # space-to-depth
         y = rearrange(x, 'b c (h h1) (w w1) -> b (h1 w1 c) h w', h1=2, w1=2)
-        assert y.shape == (10, 20 * 4, 30 // 2, 40 // 2)
+        assert tuple(y.shape) == (10, 20 * 4, 30 // 2, 40 // 2)
         return y
 
     def test5(x):
         # simple transposition
         y = rearrange(x, 'b1 sound b2 letter -> b1 b2 sound letter')
-        assert y.shape == (10, 30, 20, 40)
+        assert tuple(y.shape) == (10, 30, 20, 40)
         return y
 
     def test6(x):
         # parsing parameters
         t = rearrange(x, 'b c h w -> (b h w) c')
         t = t[:, ::2]  # replacement for dot-product, just changes size of second axis
-        assert t.shape == (10 * 30 * 40, 10)
+        assert tuple(t.shape) == (10 * 30 * 40, 10)
 
         y = rearrange(t, '(b h w) c2 -> b c2 h w', **parse_shape(x, 'b _ h w'))
-        assert y.shape == (10, 10, 30, 40)
+        assert tuple(y.shape) == (10, 10, 30, 40)
         return y
 
     def test7(x):
         # split of embedding into groups
         y1, y2 = rearrange(x, 'b (c g) h w -> g b c h w', g=2)
-        assert y1.shape == (10, 10, 30, 40)
-        assert y2.shape == (10, 10, 30, 40)
+        assert tuple(y1.shape) == (10, 10, 30, 40)
+        assert tuple(y2.shape) == (10, 10, 30, 40)
         return y1 + y2  # only one tensor is expected in output
 
     def test8(x):
         # max-pooling
         y = reduce(x, 'b c (h h1) (w w1) -> b c h w', reduction='max', h1=2, w1=2)
-        assert y.shape == (10, 20, 30 // 2, 40 // 2)
+        assert tuple(y.shape) == (10, 20, 30 // 2, 40 // 2)
         return y
 
     def test9(x):
         # squeeze - unsqueeze
         y = reduce(x, 'b c h w -> b c () ()', reduction='max')
-        assert y.shape == (10, 20, 1, 1)
+        assert tuple(y.shape) == (10, 20, 1, 1)
         y = rearrange(y, 'b c () () -> c b')
-        assert y.shape == (20, 10)
+        assert tuple(y.shape) == (20, 10)
         return y
 
     def test10(x):
         # stack
         tensors = list(x + 0)  # 0 is needed https://github.com/tensorflow/tensorflow/issues/23185
         tensors = rearrange(tensors, 'b c h w -> b h w c')
-        assert tensors.shape == (10, 30, 40, 20)
+        assert tuple(tensors.shape) == (10, 30, 40, 20)
         return tensors
 
     def test11(x):
         # concatenate
         tensors = list(x + 0)  # 0 is needed https://github.com/tensorflow/tensorflow/issues/23185
         tensors = rearrange(tensors, 'b c h w -> h (b w) c')
-        assert tensors.shape == (30, 10 * 40, 20)
+        assert tuple(tensors.shape) == (30, 10 * 40, 20)
         return tensors
 
     def shufflenet(x, convolve, c1, c2):
@@ -258,3 +258,84 @@ def test_pytorch_yolo_fragment():
                       stride_h=stride_h, stride_w=stride_w, anchors=anchors)
     result1 = result1.reshape(result2.shape)
     assert torch.allclose(result1, result2)
+
+
+def test_paddle_yolo_fragment():
+    if not any(b.framework_name == 'paddle' for b in collect_test_backends(symbolic=False, layers=False)):
+        return
+    import paddle
+
+    def old_way(input, num_classes, num_anchors, anchors, stride_h, stride_w):
+        # https://github.com/BobLiu20/YOLOv3_paddle/blob/c6b483743598b5f64d520d81e7e5f47ba936d4c9/nets/yolo_loss.py#L28-L44
+        bs = input.shape[0]
+        in_h = input.shape[2]
+        in_w = input.shape[3]
+        scaled_anchors = [(a_w / stride_w, a_h / stride_h) for a_w, a_h in anchors]
+
+        prediction = input.reshape([bs, num_anchors,5 + num_classes, in_h, in_w]).transpose([0, 1, 3, 4, 2])
+        # Get outputs
+        x = paddle.nn.functional.sigmoid(prediction[..., 0])  # Center x
+        y = paddle.nn.functional.sigmoid(prediction[..., 1])  # Center y
+        w = prediction[..., 2]  # Width
+        h = prediction[..., 3]  # Height
+        conf = paddle.nn.functional.sigmoid(prediction[..., 4])  # Conf
+        pred_cls = paddle.nn.functional.sigmoid(prediction[..., 5:])  # Cls pred.
+
+        # https://github.com/BobLiu20/YOLOv3_paddle/blob/c6b483743598b5f64d520d81e7e5f47ba936d4c9/nets/yolo_loss.py#L70-L92
+        FloatTensor = paddle.float32
+        LongTensor = paddle.int64
+        # Calculate offsets for each grid
+        grid_x = paddle.linspace(0, in_w - 1, in_w).tile([in_w, 1]).tile(
+            [bs * num_anchors, 1, 1]).reshape(x.shape).astype(FloatTensor)
+        grid_y = paddle.linspace(0, in_h - 1, in_h).tile([in_h, 1]).t().tile(
+            [bs * num_anchors, 1, 1]).reshape(y.shape).astype(FloatTensor)
+        # Calculate anchor w, h
+        anchor_w = paddle.to_tensor(scaled_anchors).astype(FloatTensor).index_select(paddle.to_tensor([0]), 1)
+        anchor_h = paddle.to_tensor(scaled_anchors).astype(FloatTensor).index_select(paddle.to_tensor([1]), 1)
+        anchor_w = anchor_w.tile([bs, 1]).tile([1, 1, in_h * in_w]).reshape(w.shape)
+        anchor_h = anchor_h.tile([bs, 1]).tile([1, 1, in_h * in_w]).reshape(h.shape)
+        # Add offset and scale with anchors
+        pred_boxes = paddle.empty(shape=prediction[..., :4].shape)
+        pred_boxes[..., 0] = x + grid_x
+        pred_boxes[..., 1] = y + grid_y
+        pred_boxes[..., 2] = paddle.exp(w) * anchor_w
+        pred_boxes[..., 3] = paddle.exp(h) * anchor_h
+        # Results
+        _scale = paddle.to_tensor([stride_w, stride_h] * 2).astype(FloatTensor)
+        output = paddle.concat((pred_boxes.reshape([bs, -1, 4]) * _scale,
+                            conf.reshape([bs, -1, 1]), pred_cls.reshape([bs, -1, num_classes])), -1)
+        return output
+
+    def new_way(input, num_classes, num_anchors, anchors, stride_h, stride_w):
+        raw_predictions = rearrange(input, ' b (anchor prediction) h w -> prediction b anchor h w', anchor=num_anchors)
+
+        anchors = paddle.to_tensor(anchors, dtype=paddle.float32)
+        anchor_sizes = rearrange(anchors, 'anchor dim -> dim () anchor () ()')
+
+        _, _, _, in_h, in_w = raw_predictions.shape
+        grid_h = rearrange(paddle.arange(in_h).astype(paddle.float32), 'h -> () () h ()')
+        grid_w = rearrange(paddle.arange(in_w).astype(paddle.float32), 'w -> () () () w')
+
+        predicted_bboxes = paddle.zeros_like(raw_predictions)
+        predicted_bboxes[0] = (paddle.nn.functional.sigmoid(raw_predictions[0]) + grid_h) * stride_h  # center y
+        predicted_bboxes[1] = (paddle.nn.functional.sigmoid(raw_predictions[1]) + grid_w) * stride_w  # center x
+        predicted_bboxes[2:4] = (raw_predictions[2:4].exp()) * anchor_sizes  # bbox width and height
+        predicted_bboxes[4] = paddle.nn.functional.sigmoid(raw_predictions[4])  # confidence
+        predicted_bboxes[5:] = paddle.nn.functional.sigmoid(raw_predictions[5:])  # class predictions
+        # only to match results of original code, not needed
+        return rearrange(predicted_bboxes, 'prediction b anchor h w -> b anchor h w prediction')
+
+    stride_h = 4
+    stride_w = 4
+    batch_size = 5
+    num_classes = 12
+    anchors = [[50, 100], [100, 50], [75, 75]]
+    num_anchors = len(anchors)
+
+    input = paddle.randn([batch_size, num_anchors * (5 + num_classes), 1, 1])
+    result1 = old_way(input=input, num_anchors=num_anchors, num_classes=num_classes,
+                      stride_h=stride_h, stride_w=stride_w, anchors=anchors)
+    result2 = new_way(input=input, num_anchors=num_anchors, num_classes=num_classes,
+                      stride_h=stride_h, stride_w=stride_w, anchors=anchors)
+    result1 = result1.reshape(result2.shape)
+    assert paddle.allclose(result1, result2)

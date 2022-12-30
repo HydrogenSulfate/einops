@@ -267,6 +267,9 @@ def test_reduction_symbolic():
 
 def test_reduction_stress_imperatives():
     for backend in imp_op_backends:
+        # PaddlePaddle now only supports access to dimension 0 to 9
+        if (backend.framework_name == "paddle"):
+            continue
         print('Stress-testing reduction for ', backend.framework_name)
         for reduction in _reductions + ('rearrange',):
             dtype = 'int64'
@@ -322,19 +325,25 @@ def test_reduction_with_callable_imperatives():
         y = numpy.sum(y, axis=tuple_of_axes)
         return numpy.log(y) + minused
 
-    from einops._backends import TorchBackend, ChainerBackend, TensorflowBackend, KerasBackend, NumpyBackend
+    def logsumexp_paddle(x, tuple_of_axes):
+        return x.logsumexp(tuple_of_axes)
+
+    from einops._backends import TorchBackend, ChainerBackend, TensorflowBackend, KerasBackend, NumpyBackend, PaddleBackend
     backend2callback = {
         TorchBackend.framework_name: logsumexp_torch,
         ChainerBackend.framework_name: logsumexp_chainer,
         TensorflowBackend.framework_name: logsumexp_tf,
         KerasBackend.framework_name: logsumexp_keras,
         NumpyBackend.framework_name: logsumexp_numpy,
+        PaddleBackend.framework_name: logsumexp_paddle,
     }
 
     for backend in imp_op_backends:
         if backend.framework_name not in backend2callback:
             continue
-
+        # PaddlePaddle currently supports up to 4-dimensional input x as the input of logsumexp.
+        if backend.framework_name == "paddle":
+            continue
         backend_callback = backend2callback[backend.framework_name]
 
         x_backend = backend.from_numpy(x_numpy)

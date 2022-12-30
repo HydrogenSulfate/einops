@@ -210,7 +210,7 @@ def test_pack_unpack_against_numpy():
     for backend in collect_test_backends(symbolic=False, layers=False):
         print(f'test packing against numpy for {backend.framework_name}')
         check_zero_len = True
-        if 'mxnet' in backend.framework_name:
+        if 'mxnet' in backend.framework_name or 'paddle' in backend.framework_name:
             # some frameworks don't accept zero as a dimension
             check_zero_len = False
 

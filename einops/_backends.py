@@ -614,3 +614,81 @@ class OneFlowBackend(AbstractBackend):
 
     def einsum(self, pattern, *x):
         return self.flow.einsum(pattern, *x)
+
+
+class PaddleBackend(AbstractBackend):
+    framework_name = 'paddle'
+
+    def __init__(self):
+        import paddle
+        self.paddle = paddle
+
+    def is_appropriate_type(self, tensor):
+        return isinstance(tensor, self.paddle.Tensor)
+
+    def from_numpy(self, x):
+        variable = self.paddle.to_tensor(x)
+        if self.is_float_type(variable):
+            # attach grad only to floating types
+            variable.stop_gradient = False
+        return variable
+
+    def to_numpy(self, x):
+        return x.detach().numpy()
+
+    def arange(self, start, stop):
+        return self.paddle.arange(start, stop, dtype=self.paddle.int64)
+
+    def shape(self, x):
+        """shape should return a tuple with integers or "shape symbols" (which will evaluate to actual size)"""
+        return tuple(x.shape)
+
+    def reduce(self, x, operation, reduced_axes):
+        if operation == 'min':
+            return x.min(axis=reduced_axes)
+        elif operation == 'max':
+            return x.max(axis=reduced_axes)
+        elif operation == 'sum':
+            return x.sum(axis=reduced_axes)
+        elif operation == 'mean':
+            return x.mean(axis=reduced_axes)
+        elif operation == 'prod':
+            for i in list(sorted(reduced_axes))[::-1]:
+                x = x.prod(axis=i)
+            return x
+        else:
+            raise NotImplementedError('Unknown reduction ', operation)
+
+    def transpose(self, x, axes):
+        if axes == []:
+            axes = list(range(x.ndim))
+        return x.transpose(axes)
+
+    def stack_on_zeroth_dimension(self, tensors: list):
+        return self.paddle.stack(tensors)
+
+    def add_axes(self, x, n_axes, pos2len):
+        repeats = [-1] * n_axes
+        for axis_position, axis_length in pos2len.items():
+            x = self.add_axis(x, axis_position)
+            repeats[axis_position] = axis_length
+        return x.expand(repeats)
+
+    def tile(self, x, repeats):
+        return x.tile(repeats)
+
+    def concat(self, tensors, axis: int):
+        return self.paddle.concat(tensors, axis=axis)
+
+    def add_axis(self, x, new_position):
+        return self.paddle.unsqueeze(x, new_position)
+
+    def is_float_type(self, x):
+        return x.dtype in [self.paddle.float16, self.paddle.float32, self.paddle.float64, self.paddle.bfloat16]
+
+    def layers(self):
+        from .layers import paddle
+        return paddle
+
+    def einsum(self, pattern, *x):
+        return self.paddle.einsum(pattern, *x)

@@ -32,7 +32,7 @@ if shutil.which('nvidia-smi') is not None:
 # install cupy. It can't be installed without cuda available (with compilers).
 skip_cupy = not have_cuda
 if not skip_cupy:
-    return_code = run('pip install cupy --pre --progress-bar off')
+    return_code = run('pip install cupy --pre --progress-bar off -i https://pypi.douban.com/simple/')
     assert return_code == 0
 
 # install dependencies
@@ -52,7 +52,7 @@ dependencies = [
     'pytest',
 ]
 
-assert 0 == run('pip install {} --progress-bar off'.format(' '.join(dependencies)))
+assert 0 == run('pip install {} --progress-bar off -i https://pypi.douban.com/simple/'.format(' '.join(dependencies)))
 
 # oneflow provides wheels for linux, but not mac, so it is tested only on linux
 skip_oneflow = 'linux' not in sys.platform
@@ -60,7 +60,7 @@ skip_oneflow = True
 
 if not skip_oneflow:
     # oneflow installation: https://github.com/Oneflow-Inc/oneflow#install-with-pip-package
-    assert 0 == run('pip install -f https://release.oneflow.info oneflow==0.7.0+cpu --user')
+    assert 0 == run('pip install -f https://release.oneflow.info oneflow==0.7.0+cpu --user -i https://pypi.douban.com/simple/')
 
 # install einops
 assert 0 == run('pip install -e .')
